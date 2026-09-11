@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<!--
+  ============================================================================
+  Nebenkosten – Single-File PWA
+  ============================================================================
+  Installation (iPhone):
+    Safari öffnen → diese Datei laden (z.B. von iCloud Drive oder per Server)
+    → Teilen-Button → "Zum Home-Bildschirm". Läuft danach offline, Daten
+    liegen in localStorage auf dem Gerät.
+
+  Sync zwischen Geräten (optional, über Firebase Firestore):
+    1. Firebase-Projekt anlegen: https://console.firebase.google.com
+    2. Firestore-Datenbank aktivieren (Modus "production" reicht).
+    3. Web-App im Projekt registrieren, die dort angezeigte Config entweder
+       - unten in die Konstante FIREBASE_CONFIG eintragen, ODER
+       - bequemer: in der App unter "Einstellungen" → "Sync" einfügen
+         (dort kann das komplette JS-Objekt aus der Firebase-Konsole
+         hineinkopiert werden, auch unquoted keys funktionieren).
+    4. In der App unter Einstellungen einen frei wählbaren "Haushalts-Code"
+       vergeben (z.B. "mueller-hauptstr-12") und auf allen Geräten denselben
+       Code eintragen — jedes Gerät mit demselben Code synchronisiert sich
+       über das Firestore-Dokument households/{code}.
+    5. Minimale Firestore-Regeln (Sicherheitshinweis: der Haushalts-Code ist
+       das einzige "Geheimnis" – für den privaten Gebrauch ausreichend,
+       aber jede Person mit dem Code kann lesen/schreiben):
+
+         rules_version = '2';
+         service cloud.firestore {
+           match /databases/{database}/documents {
+             match /households/{code} {
+               allow read, write: if code is string && code.size() > 0;
+             }
+           }
+         }
+
+    Hinweis: Beleg-Anhänge (Fotos/PDFs) werden bewusst NUR lokal auf dem
+    jeweiligen Gerät gespeichert (Base64 in localStorage) und NICHT über
+    Firestore synchronisiert, um das Dokumentenlimit nicht zu sprengen.
+    Alle anderen Felder werden per Last-Write-Wins synchronisiert.
+  ============================================================================
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Nebenkosten</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Nebenkosten">
+<meta name="theme-color" content="#eef1f7">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230a84ff'/%3E%3Cpath d='M28 62 L50 30 L72 62 L60 62 L60 74 L40 74 L40 62 Z' fill='white'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg1:#eef1f7; --bg2:#e3e9f7; --bg3:#f3e8f2;
+  --glass:rgba(255,255,255,0.55);
+  --glass-strong:rgba(255,255,255,0.78);
+  --glass-border:rgba(255,255,255,0.7);
+  --field-bg:rgba(255,255,255,0.55);
+  --text:#1c1c1e;
+  --text-dim:rgba(60,60,67,0.65);
+  --text-faint:rgba(60,60,67,0.45);
+  --accent:#0a84ff;
+  --accent2:#5e5ce6;
+  --danger:#ff3b30;
+  --warn:#ff9500;
+  --good:#248a3d;
+  --shadow:0 10px 30px rgba(31,41,55,0.12), 0 2px 8px rgba(31,41,55,0.06);
+  --divider:rgba(60,60,67,0.16);
+  --r-lg:26px; --r-md:18px; --r-sm:12px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg1:#08080c; --bg2:#111018; --bg3:#0c1420;
+    --glass:rgba(42,42,48,0.55);
+    --glass-strong:rgba(52,52,60,0.75);
+    --glass-border:rgba(255,255,255,0.14);
+    --field-bg:rgba(255,255,255,0.08);
+    --text:#f5f5f7;
+    --text-dim:rgba(235,235,245,0.65);
+    --text-faint:rgba(235,235,245,0.4);
+    --accent:#409cff;
+    --accent2:#7d7aff;
+    --danger:#ff453a;
+    --warn:#ff9f0a;
+    --good:#32d74b;
+    --shadow:0 10px 30px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+    --divider:rgba(235,235,245,0.15);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg1:#08080c; --bg2:#111018; --bg3:#0c1420;
+  --glass:rgba(42,42,48,0.55);
+  --glass-strong:rgba(52,52,60,0.75);
+  --glass-border:rgba(255,255,255,0.14);
+  --field-bg:rgba(255,255,255,0.08);
+  --text:#f5f5f7;
+  --text-dim:rgba(235,235,245,0.65);
+  --text-faint:rgba(235,235,245,0.4);
+  --accent:#409cff;
+  --accent2:#7d7aff;
+  --danger:#ff453a;
+  --warn:#ff9f0a;
+  --good:#32d74b;
+  --shadow:0 10px 30px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+  --divider:rgba(235,235,245,0.15);
+  color-scheme: dark;
+}
+*, *::before, *::after{ box-sizing:border-box; min-width:0; }
+html, body{ margin:0; padding:0; width:100%; overflow-x:hidden; }
+body{
+  min-height:100svh;
+  color:var(--text);
+  font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  background:
+    radial-gradient(1200px 800px at 10% -10%, var(--bg3), transparent 60%),
+    radial-gradient(1000px 700px at 110% 10%, var(--bg2), transparent 55%),
+    var(--bg1);
+  background-attachment:fixed;
+  -webkit-font-smoothing:antialiased;
+}
+img, svg{ max-width:100%; }
+button{ font-family:inherit; }
+a{ color:var(--accent); }
+[hidden]{ display:none !important; }
+
+.glass{
+  background:var(--glass);
+  backdrop-filter:blur(24px) saturate(180%);
+  -webkit-backdrop-filter:blur(24px) saturate(180%);
+  border:1px solid var(--glass-border);
+  border-radius:var(--r-lg);
+  box-shadow:var(--shadow);
+}
+
+/* ---------- Layout ---------- */
+#app{ width:100%; max-width:1200px; margin:0 auto; padding: clamp(12px,3vw,28px); padding-top:calc(env(safe-area-inset-top) + clamp(12px,3vw,20px)); padding-bottom:calc(env(safe-area-inset-bottom) + 40px); }
+
+header.topbar{
+  position:sticky; top:calc(env(safe-area-inset-top) + 8px); z-index:20;
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding: clamp(10px,2vw,16px) clamp(14px,3vw,22px);
+  margin-bottom: clamp(14px,3vw,22px);
+}
+.brand{ display:flex; align-items:center; gap:10px; font-weight:700; font-size:clamp(1.05rem,1rem + 0.4vw,1.3rem); margin-right:auto; min-width:0; }
+.brand .logo{ width:30px; height:30px; border-radius:9px; background:linear-gradient(145deg, var(--accent), var(--accent2)); display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; flex:none; }
+.wohnung-picker{ display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; }
+select#wohnung-select{
+  appearance:none; -webkit-appearance:none;
+  background:var(--field-bg); color:var(--text); border:1px solid var(--divider);
+  border-radius:14px; padding:8px 30px 8px 14px; font-size:0.92rem; font-weight:600;
+  max-width:44vw;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 12px center;
+}
+.iconbtn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:38px; height:38px; border-radius:50%; border:1px solid var(--divider);
+  background:var(--field-bg); color:var(--text); cursor:pointer; flex:none;
+  transition:transform .15s ease, background .15s ease;
+}
+.iconbtn:active{ transform:scale(0.92); }
+.iconbtn svg{ width:18px; height:18px; }
+.sync-dot{ width:9px; height:9px; border-radius:50%; background:#8e8e93; box-shadow:0 0 0 3px rgba(142,142,147,0.18); }
+.sync-dot.connecting{ background:var(--warn); box-shadow:0 0 0 3px rgba(255,149,0,0.2); animation:pulse 1s infinite; }
+.sync-dot.synced{ background:var(--good); box-shadow:0 0 0 3px rgba(52,199,89,0.2); }
+.sync-dot.error{ background:var(--danger); box-shadow:0 0 0 3px rgba(255,59,48,0.2); }
+@keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.4;} }
+
+/* ---------- Banners ---------- */
+.banners{ display:flex; flex-direction:column; gap:10px; margin-bottom:18px; }
+.banner{
+  display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:var(--r-md);
+  background:var(--glass); border:1px solid var(--glass-border); backdrop-filter:blur(20px) saturate(160%);
+}
+.banner.warn{ border-left:4px solid var(--warn); }
+.banner.danger{ border-left:4px solid var(--danger); }
+.banner .btxt{ flex:1; min-width:0; font-size:0.9rem; }
+.banner .btxt b{ display:block; font-size:0.95rem; margin-bottom:2px; }
+.banner button{ flex:none; }
+
+/* ---------- Chart card ---------- */
+.card{ padding:clamp(16px,3vw,26px); margin-bottom:20px; }
+.card h2{ margin:0 0 14px; font-size:clamp(1rem,0.95rem + 0.3vw,1.15rem); }
+.chart-wrap{ width:100%; }
+canvas#chart{ width:100%; height:220px; display:block; }
+.legend{ display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; font-size:0.82rem; color:var(--text-dim); }
+.legend span{ display:inline-flex; align-items:center; gap:6px; }
+.legend i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+/* ---------- toolbar ---------- */
+.toolbar{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
+.toolbar h1{ font-size:clamp(1.1rem,1rem + 0.6vw,1.4rem); margin:0; }
+
+.btn{
+  border:none; cursor:pointer; border-radius:14px; padding:10px 18px; font-size:0.92rem; font-weight:600;
+  transition:transform .12s ease, opacity .12s ease; white-space:nowrap;
+}
+.btn:active{ transform:scale(0.96); }
+.btn-primary{ background:linear-gradient(145deg, var(--accent), var(--accent2)); color:#fff; }
+.btn-secondary{ background:var(--field-bg); color:var(--text); border:1px solid var(--divider); }
+.btn-danger{ background:var(--danger); color:#fff; }
+.btn-ghost{ background:transparent; color:var(--accent); }
+.btn-sm{ padding:7px 12px; font-size:0.82rem; border-radius:11px; }
+.btn:disabled{ opacity:0.45; cursor:not-allowed; }
+
+/* ---------- Year grid ---------- */
+.grid-years{ display:grid; grid-template-columns:repeat(auto-fill, minmax(min(300px,100%),1fr)); gap:16px; }
+.year-card{ padding:clamp(16px,2.6vw,22px); display:flex; flex-direction:column; gap:10px; }
+.year-card .yc-head{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.year-card .yc-year{ font-size:1.5rem; font-weight:700; }
+.yc-diff{ font-size:0.78rem; font-weight:700; padding:3px 9px; border-radius:20px; white-space:nowrap; }
+.yc-diff.up{ color:var(--danger); background:rgba(255,59,48,0.12); }
+.yc-diff.down{ color:var(--good); background:rgba(52,199,89,0.12); }
+.yc-total{ font-size:1.7rem; font-weight:800; }
+.yc-rows{ display:flex; flex-direction:column; gap:6px; font-size:0.85rem; color:var(--text-dim); }
+.yc-rows div{ display:flex; justify-content:space-between; gap:8px; }
+.yc-rows b{ color:var(--text); font-weight:600; }
+.yc-badge{ display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; padding:2px 8px; border-radius:20px; margin-left:6px; }
+.yc-badge.warn{ background:rgba(255,149,0,0.16); color:var(--warn); }
+.yc-nz{ margin-top:4px; padding:10px 12px; border-radius:14px; font-size:0.88rem; font-weight:700; display:flex; justify-content:space-between; }
+.yc-nz.pay{ background:rgba(255,59,48,0.1); color:var(--danger); }
+.yc-nz.credit{ background:rgba(52,199,89,0.1); color:var(--good); }
+.yc-actions{ display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; }
+.yc-actions .btn{ flex:1 1 auto; }
+
+.empty-state{ text-align:center; padding:50px 20px; color:var(--text-dim); }
+
+/* ---------- Overlays / Sheets ---------- */
+.overlay{
+  position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center;
+  padding:16px; padding-bottom:calc(16px + env(safe-area-inset-bottom));
+  background:rgba(10,10,15,0.32); backdrop-filter:blur(8px);
+  opacity:0; pointer-events:none; transition:opacity .2s ease;
+}
+.overlay.open{ opacity:1; pointer-events:auto; }
+.panel{
+  width:100%; max-width:560px; max-height:88svh; overflow-y:auto; overflow-x:hidden;
+  padding:clamp(18px,4vw,28px); transform:scale(0.95) translateY(8px); transition:transform .2s ease;
+  background:var(--glass-strong);
+}
+.overlay.open .panel{ transform:scale(1) translateY(0); }
+.panel h3{ margin:0 0 4px; font-size:1.2rem; }
+.panel .sub{ color:var(--text-dim); font-size:0.85rem; margin:0 0 16px; }
+.panel-close{ float:right; }
+
+.field{ display:flex; flex-direction:column; gap:5px; min-width:0; }
+.field label{ font-size:0.78rem; color:var(--text-dim); font-weight:600; }
+input, select, textarea{
+  width:100%; min-width:0; box-sizing:border-box; font:inherit; color:var(--text);
+  background:var(--field-bg); border:1px solid var(--divider); border-radius:12px; padding:10px 12px;
+}
+textarea{ resize:vertical; min-height:70px; }
+input[type="file"]{ padding:8px; }
+input[type="checkbox"]{ width:auto; }
+fieldset{ border:1px solid var(--divider); border-radius:var(--r-md); padding:14px; margin:0 0 16px; min-width:0; }
+legend{ padding:0 8px; font-weight:700; font-size:0.88rem; color:var(--text-dim); }
+.form-row{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:10px; }
+.form-row > .field{ flex:1 1 150px; min-width:0; }
+.nk-row, .beleg-row{
+  display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; padding:10px; border-radius:var(--r-sm);
+  background:rgba(127,127,127,0.08); margin-bottom:8px;
+}
+.nk-row > .field{ flex:1 1 100px; min-width:0; }
+.nk-row .field.name-field{ flex:1 1 160px; }
+.beleg-row{ align-items:center; justify-content:space-between; }
+.beleg-row .bname{ font-size:0.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1 1 auto; min-width:0; }
+.beleg-thumb{ width:36px; height:36px; object-fit:cover; border-radius:8px; flex:none; }
+.row-del{ flex:none; width:32px; height:32px; border-radius:50%; border:none; background:rgba(255,59,48,0.14); color:var(--danger); cursor:pointer; font-size:16px; line-height:1; }
+.panel-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:18px; flex-wrap:wrap; }
+.panel-actions.spread{ justify-content:space-between; }
+.wohnung-row{ display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+.wohnung-row input{ flex:1 1 140px; }
+.hint{ font-size:0.78rem; color:var(--text-faint); margin-top:4px; }
+
+/* Confirm/alert modal reuses .overlay/.panel but narrower */
+#modal-overlay .panel{ max-width:380px; text-align:left; }
+#modal-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:18px; flex-wrap:wrap; }
+#modal-actions .btn{ flex:1 1 auto; }
+
+.settings-section{ margin-bottom:22px; }
+.settings-section h4{ margin:0 0 10px; font-size:0.95rem; }
+
+footer.app-footer{ text-align:center; color:var(--text-faint); font-size:0.75rem; margin-top:30px; }
+
+@media (max-width:480px){
+  .brand .name{ display:none; }
+  select#wohnung-select{ max-width:38vw; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar glass">
+    <div class="brand"><span class="logo">€</span><span class="name">Nebenkosten</span></div>
+    <div class="wohnung-picker">
+      <select id="wohnung-select" aria-label="Wohnung auswählen"></select>
+      <button class="iconbtn" id="btn-wohnungen" title="Wohnungen verwalten" aria-label="Wohnungen verwalten">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-8h6v8"/></svg>
+      </button>
+    </div>
+    <button class="iconbtn" id="btn-theme" title="Erscheinungsbild" aria-label="Erscheinungsbild umschalten">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <button class="iconbtn" id="btn-settings" title="Einstellungen &amp; Sync" aria-label="Einstellungen">
+      <span class="sync-dot" id="sync-dot"></span>
+    </button>
+  </header>
+
+  <div class="banners" id="banners"></div>
+
+  <section class="card glass">
+    <h2>Jahresübersicht</h2>
+    <div class="chart-wrap"><canvas id="chart" width="800" height="220"></canvas></div>
+    <div class="legend" id="chart-legend"></div>
+  </section>
+
+  <div class="toolbar">
+    <h1>Jahre</h1>
+    <button class="btn btn-primary" id="btn-add-year">+ Jahr hinzufügen</button>
+  </div>
+
+  <div class="grid-years" id="year-grid"></div>
+
+</div>
+
+<!-- ============ Year sheet ============ -->
+<div class="overlay" id="sheet-year">
+  <div class="panel glass" role="dialog" aria-modal="true" aria-labelledby="yf-title">
+    <h3 id="yf-title">Jahr</h3>
+    <p class="sub">Alle Angaben beziehen sich auf das ganze Kalenderjahr.</p>
+
+    <div class="form-row">
+      <div class="field"><label for="jf-jahr">Jahr</label><input type="number" id="jf-jahr" inputmode="numeric" placeholder="2024"></div>
+      <div class="field"><label for="jf-abschlag">NK-Abschlag / Monat (€)</label><input type="number" id="jf-abschlag" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+    </div>
+
+    <fieldset>
+      <legend>Strom</legend>
+      <div class="form-row">
+        <div class="field"><label>Anbieter</label><input type="text" id="jf-strom-anbieter"></div>
+        <div class="field"><label>kWh / Jahr</label><input type="number" id="jf-strom-kwh" step="1" inputmode="numeric"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Kosten / Jahr (€)</label><input type="number" id="jf-strom-kosten" step="0.01" inputmode="decimal"></div>
+        <div class="field"><label>Kündigungsdatum</label><input type="date" id="jf-strom-kuendigung"></div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Internet</legend>
+      <div class="form-row">
+        <div class="field"><label>Anbieter</label><input type="text" id="jf-internet-anbieter"></div>
+        <div class="field"><label>Kosten / Jahr (€)</label><input type="number" id="jf-internet-kosten" step="0.01" inputmode="decimal"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Kündigungsdatum</label><input type="date" id="jf-internet-kuendigung"></div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Müll</legend>
+      <div class="form-row">
+        <div class="field"><label>Anbieter</label><input type="text" id="jf-muell-anbieter"></div>
+        <div class="field"><label>Kosten / Jahr (€)</label><input type="number" id="jf-muell-kosten" step="0.01" inputmode="decimal"></div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Weitere Nebenkosten-Positionen</legend>
+      <div id="jf-nk-list"></div>
+      <button type="button" class="btn btn-secondary btn-sm" id="jf-nk-add">+ Position hinzufügen</button>
+      <datalist id="nk-kategorien">
+        <option value="Heizung"><option value="Wasser/Abwasser"><option value="Hausreinigung">
+        <option value="Hausmeister"><option value="Gartenpflege"><option value="Schornsteinfeger">
+        <option value="Aufzug"><option value="Allgemeinstrom"><option value="Gebäudeversicherung">
+        <option value="Grundsteuer"><option value="Sonstiges">
+      </datalist>
+    </fieldset>
+
+    <fieldset>
+      <legend>Belege</legend>
+      <div id="jf-belege-list"></div>
+      <input type="file" id="jf-belege-input" accept="image/*,application/pdf" multiple>
+      <p class="hint">Fotos/PDFs werden nur auf diesem Gerät gespeichert (kein Sync).</p>
+    </fieldset>
+
+    <div class="field"><label for="jf-notiz">Notiz</label><textarea id="jf-notiz" rows="3"></textarea></div>
+
+    <div class="panel-actions spread">
+      <button class="btn btn-danger" id="jf-delete" hidden>Löschen</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" id="jf-cancel">Abbrechen</button>
+        <button class="btn btn-primary" id="jf-save">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Wohnungen sheet ============ -->
+<div class="overlay" id="sheet-wohnungen">
+  <div class="panel glass" role="dialog" aria-modal="true">
+    <h3>Wohnungen</h3>
+    <p class="sub">Verwalte deine Objekte.</p>
+    <div id="wohnungen-list"></div>
+    <button class="btn btn-secondary btn-sm" id="wf-add">+ Wohnung hinzufügen</button>
+    <div class="panel-actions">
+      <button class="btn btn-primary" id="wf-close">Fertig</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Settings sheet ============ -->
+<div class="overlay" id="sheet-settings">
+  <div class="panel glass" role="dialog" aria-modal="true">
+    <h3>Einstellungen</h3>
+
+    <div class="settings-section">
+      <h4>Sync (Firebase Firestore)</h4>
+      <div class="field" style="margin-bottom:10px;">
+        <label for="sf-code">Haushalts-Code</label>
+        <input type="text" id="sf-code" placeholder="z.B. mueller-hauptstr-12">
+      </div>
+      <div class="field" style="margin-bottom:10px;">
+        <label for="sf-config">Firebase-Konfiguration (aus der Firebase-Konsole kopieren)</label>
+        <textarea id="sf-config" rows="5" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", ... }'></textarea>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <button class="btn btn-primary btn-sm" id="sf-connect">Verbinden</button>
+        <button class="btn btn-secondary btn-sm" id="sf-disconnect">Trennen</button>
+        <span id="sf-status" style="font-size:0.82rem;color:var(--text-dim);"></span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h4>Erscheinungsbild</h4>
+      <select id="sf-theme">
+        <option value="system">Systemeinstellung</option>
+        <option value="light">Hell</option>
+        <option value="dark">Dunkel</option>
+      </select>
+    </div>
+
+    <div class="settings-section">
+      <h4>Backup</h4>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" id="sf-export-json">JSON exportieren</button>
+        <button class="btn btn-secondary btn-sm" id="sf-export-csv">CSV exportieren</button>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;">Import…<input type="file" id="sf-import" accept="application/json" hidden></label>
+      </div>
+      <p class="hint">JSON enthält alle Wohnungen und Jahre und eignet sich zur vollständigen Wiederherstellung. CSV ist für Excel/Numbers gedacht.</p>
+    </div>
+
+    <div class="panel-actions">
+      <button class="btn btn-primary" id="sf-close">Fertig</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Generic confirm/alert modal ============ -->
+<div class="overlay" id="modal-overlay">
+  <div class="panel glass" role="alertdialog" aria-modal="true" aria-labelledby="modal-title">
+    <h3 id="modal-title"></h3>
+    <p id="modal-message" class="sub" style="margin-bottom:0;"></p>
+    <div id="modal-actions"></div>
+  </div>
+</div>
+
+<!-- Firebase (compat SDK, no build step needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<!-- jsPDF for real, client-side generated PDF files -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+(function(){
+"use strict";
+
+/* =========================================================================
+   FIREBASE_CONFIG — hier eintragen, ODER bequemer zur Laufzeit über
+   Einstellungen → Sync (wird dann in localStorage gespeichert und hat
+   Vorrang vor dieser Konstante). Leer lassen = Sync-Funktion bleibt aus.
+   ========================================================================= */
+const FIREBASE_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+
+/* ---------------- Constants ---------------- */
+const LS_DATA = "nk_data_v1";
+const LS_SETTINGS = "nk_settings_v1";
+const CLIENT_ID = "c_" + Math.random().toString(36).slice(2, 10);
+const NK_CATEGORY_SUGGESTIONS = ["Heizung","Wasser/Abwasser","Hausreinigung","Hausmeister","Gartenpflege","Schornsteinfeger","Aufzug","Allgemeinstrom","Gebäudeversicherung","Grundsteuer","Sonstiges"];
+const COLORS = { strom:"#ff9500", internet:"#5e5ce6", muell:"#8e8e93", nk:"#0a84ff" };
+const COLORS_RGB = { strom:[255,149,0], internet:[94,92,230], muell:[142,142,147], nk:[10,132,255] };
+
+/* ---------------- State ---------------- */
+let state = { wohnungen: [], activeWohnungId: null };
+let settings = { theme: "system", haushaltsCode: "", firebaseConfig: null };
+
+let fbApp = null, fbDb = null, fbUnsub = null;
+let editingJahrId = null; // null = new
+let lastRemoteMillis = 0;
+
+/* ---------------- Utils ---------------- */
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function num(v){ const n = Number(v); return isFinite(n) ? n : 0; }
+function fmtEuro(n){ return num(n).toLocaleString("de-DE",{style:"currency",currency:"EUR"}); }
+function fmtNum(n){ return num(n).toString().replace(".",","); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+function daysUntil(dateStr){
+  if(!dateStr) return null;
+  const d = new Date(dateStr + "T00:00:00");
+  if(isNaN(d)) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  return Math.round((d - today) / 86400000);
+}
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+/* ---------------- Model helpers ---------------- */
+function newWohnung(name){ return { id: uid(), name: name || "Neue Wohnung", jahre: [] }; }
+function newJahr(jahrNum){
+  return {
+    id: uid(), jahr: jahrNum || new Date().getFullYear(),
+    strom:{ anbieter:"", kwhJahr:0, kostenJahr:0, kuendigung:"" },
+    internet:{ anbieter:"", kostenJahr:0, kuendigung:"" },
+    muell:{ anbieter:"", kostenJahr:0 },
+    abschlagMonat:0,
+    nkPositionen:[],
+    notiz:"",
+    belege:[]
+  };
+}
+function activeWohnung(){
+  return state.wohnungen.find(w=>w.id===state.activeWohnungId) || state.wohnungen[0] || null;
+}
+function calcNkSumme(jahr){ return (jahr.nkPositionen||[]).reduce((s,p)=>s+num(p.betrag),0); }
+function calcGesamt(jahr){ return num(jahr.strom.kostenJahr)+num(jahr.internet.kostenJahr)+num(jahr.muell.kostenJahr)+calcNkSumme(jahr); }
+function calcNachzahlung(jahr){ return calcNkSumme(jahr) - num(jahr.abschlagMonat)*12; }
+function findJahrOf(wohnung, jahrNumber){ return wohnung.jahre.find(j=>j.jahr===jahrNumber); }
+
+/* ---------------- Persistence ---------------- */
+function loadState(){
+  try{
+    const raw = localStorage.getItem(LS_DATA);
+    if(raw){ state = JSON.parse(raw); }
+  }catch(e){ console.warn("Konnte Daten nicht laden", e); }
+  if(!state.wohnungen || !state.wohnungen.length){
+    const w = newWohnung("Meine Wohnung");
+    state = { wohnungen:[w], activeWohnungId:w.id };
+  }
+  if(!state.activeWohnungId || !state.wohnungen.find(w=>w.id===state.activeWohnungId)){
+    state.activeWohnungId = state.wohnungen[0].id;
+  }
+}
+function saveState(push){
+  localStorage.setItem(LS_DATA, JSON.stringify(state));
+  if(push !== false) pushRemote();
+  render();
+}
+function loadSettings(){
+  try{
+    const raw = localStorage.getItem(LS_SETTINGS);
+    if(raw) settings = Object.assign(settings, JSON.parse(raw));
+  }catch(e){ console.warn("Konnte Einstellungen nicht laden", e); }
+}
+function saveSettings(){ localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); }
+
+/* ---------------- Theme ---------------- */
+function applyTheme(){
+  if(settings.theme === "light") document.documentElement.setAttribute("data-theme","light");
+  else if(settings.theme === "dark") document.documentElement.setAttribute("data-theme","dark");
+  else document.documentElement.removeAttribute("data-theme");
+  const btn = document.getElementById("btn-theme");
+  if(btn){
+    const icon = settings.theme === "dark"
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+      : settings.theme === "light"
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>';
+    btn.innerHTML = icon;
+  }
+}
+function cycleTheme(){
+  settings.theme = settings.theme === "system" ? "light" : settings.theme === "light" ? "dark" : "system";
+  saveSettings(); applyTheme();
+  const sel = document.getElementById("sf-theme"); if(sel) sel.value = settings.theme;
+}
+
+/* ---------------- Overlay open/close (shared by sheets + modal) ----------------
+   Uses a per-element pending-hide-timer so that rapidly opening a new overlay
+   (e.g. a second confirm dialog fired right after a previous one closes)
+   can never be clobbered by a stale setTimeout that still wants to hide it. */
+function openOverlay(el){
+  if(el._hideTimer){ clearTimeout(el._hideTimer); el._hideTimer = null; }
+  el.hidden = false;
+  requestAnimationFrame(()=>el.classList.add("open"));
+}
+function closeOverlay(el){
+  el.classList.remove("open");
+  if(el._hideTimer) clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(()=>{ el.hidden = true; el._hideTimer = null; }, 200);
+}
+
+/* ---------------- Generic modal (replaces confirm/alert/prompt) ---------------- */
+function confirmModal({title, message, actions}){
+  return new Promise(resolve=>{
+    const overlay = document.getElementById("modal-overlay");
+    document.getElementById("modal-title").textContent = title || "";
+    document.getElementById("modal-message").textContent = message || "";
+    const actionsEl = document.getElementById("modal-actions");
+    actionsEl.className = "panel-actions" + (actions.length > 1 ? " spread" : "");
+    actionsEl.innerHTML = "";
+    actions.forEach(a=>{
+      const btn = document.createElement("button");
+      btn.className = "btn btn-" + (a.style || "secondary");
+      btn.textContent = a.label;
+      btn.onclick = ()=>{ close(); resolve(a.id); };
+      actionsEl.appendChild(btn);
+    });
+    function close(){
+      overlay.removeEventListener("click", onBackdrop);
+      closeOverlay(overlay);
+    }
+    function onBackdrop(e){ if(e.target === overlay){ close(); resolve("cancel"); } }
+    openOverlay(overlay);
+    overlay.addEventListener("click", onBackdrop);
+  });
+}
+function alertModal({title, message}){
+  return confirmModal({ title, message, actions:[{id:"ok", label:"OK", style:"primary"}] });
+}
+
+/* ---------------- Sheet open/close ---------------- */
+function openSheet(id){ openOverlay(document.getElementById(id)); }
+function closeSheet(id){ closeOverlay(document.getElementById(id)); }
+
+/* ---------------- Rendering ---------------- */
+function render(){
+  renderWohnungSelect();
+  renderBanners();
+  renderChart();
+  renderYearGrid();
+  renderSyncDot();
+}
+
+function renderWohnungSelect(){
+  const sel = document.getElementById("wohnung-select");
+  sel.innerHTML = state.wohnungen.map(w=>`<option value="${esc(w.id)}" ${w.id===state.activeWohnungId?"selected":""}>${esc(w.name)}</option>`).join("");
+}
+
+function renderBanners(){
+  const el = document.getElementById("banners");
+  const w = activeWohnung();
+  if(!w){ el.innerHTML=""; return; }
+  const banners = [];
+  const now = new Date();
+  const prevYear = now.getFullYear() - 1;
+  if(now.getMonth() >= 2){ // ab März (Monat-Index 2)
+    const prevJahr = findJahrOf(w, prevYear);
+    if(!prevJahr || !prevJahr.nkPositionen || prevJahr.nkPositionen.length === 0){
+      banners.push({
+        type:"warn",
+        text:`<b>Abrechnung ${prevYear} fehlt</b>Für „${esc(w.name)}“ wurden für ${prevYear} noch keine Nebenkosten-Positionen erfasst.`,
+        action:{ label:"Jahr anlegen", fn:()=>openYearSheet(null, prevYear) }
+      });
+    }
+  }
+  const latestJahr = w.jahre.slice().sort((a,b)=>b.jahr-a.jahr)[0];
+  if(latestJahr){
+    [["strom","Stromvertrag"],["internet","Internetvertrag"]].forEach(([key,label])=>{
+      const d = daysUntil(latestJahr[key].kuendigung);
+      if(d !== null && d >= 0 && d <= 60){
+        banners.push({ type:"warn", text:`<b>${label} läuft bald aus</b>Kündigungsdatum in ${d} Tag(en) (${latestJahr[key].kuendigung}).` });
+      }
+    });
+  }
+  el.innerHTML = "";
+  banners.forEach(b=>{
+    const div = document.createElement("div");
+    div.className = "banner " + b.type;
+    div.innerHTML = `<div class="btxt">${b.text}</div>`;
+    if(b.action){
+      const btn = document.createElement("button");
+      btn.className = "btn btn-secondary btn-sm";
+      btn.textContent = b.action.label;
+      btn.onclick = b.action.fn;
+      div.appendChild(btn);
+    }
+    el.appendChild(div);
+  });
+}
+
+function renderChart(){
+  const canvas = document.getElementById("chart");
+  const w = activeWohnung();
+  const legend = document.getElementById("chart-legend");
+  legend.innerHTML = [["strom","Strom"],["internet","Internet"],["muell","Müll"],["nk","Weitere NK"]]
+    .map(([k,label])=>`<span><i style="background:${COLORS[k]}"></i>${label}</span>`).join("");
+  if(!w || !w.jahre.length){
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    return;
+  }
+  const jahre = w.jahre.slice().sort((a,b)=>a.jahr-b.jahr);
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || canvas.parentElement.clientWidth;
+  const cssH = 220;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  canvas.style.height = cssH + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const padL = 46, padB = 26, padT = 10, padR = 10;
+  const plotW = cssW - padL - padR;
+  const plotH = cssH - padT - padB;
+  const totals = jahre.map(j=>calcGesamt(j));
+  const maxVal = Math.max(1, ...totals) * 1.15;
+  const barSlot = plotW / jahre.length;
+  const barW = Math.min(56, barSlot * 0.55);
+  const isDark = getComputedStyle(document.documentElement).getPropertyValue("color-scheme").indexOf("dark") >= 0;
+  const gridColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)";
+  const textColor = isDark ? "rgba(235,235,245,0.6)" : "rgba(60,60,67,0.6)";
+
+  ctx.strokeStyle = gridColor; ctx.fillStyle = textColor;
+  ctx.font = "11px -apple-system, sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for(let i=0;i<=3;i++){
+    const val = maxVal / 3 * i;
+    const y = padT + plotH - (val/maxVal)*plotH;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(cssW-padR, y); ctx.stroke();
+    ctx.fillText(Math.round(val).toLocaleString("de-DE"), padL-8, y);
+  }
+
+  jahre.forEach((j,i)=>{
+    const x = padL + i*barSlot + (barSlot-barW)/2;
+    let y = padT + plotH;
+    const segs = [
+      [num(j.strom.kostenJahr), COLORS.strom],
+      [num(j.internet.kostenJahr), COLORS.internet],
+      [num(j.muell.kostenJahr), COLORS.muell],
+      [calcNkSumme(j), COLORS.nk]
+    ];
+    segs.forEach(([val,color])=>{
+      const h = (val/maxVal)*plotH;
+      y -= h;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, barW, h);
+    });
+    ctx.fillStyle = textColor; ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillText(String(j.jahr), x+barW/2, padT+plotH+6);
+  });
+}
+
+function renderYearGrid(){
+  const grid = document.getElementById("year-grid");
+  const w = activeWohnung();
+  if(!w){ grid.innerHTML = ""; return; }
+  if(!w.jahre.length){
+    grid.innerHTML = `<div class="empty-state glass card">Für „${esc(w.name)}“ wurden noch keine Jahre angelegt.<br><br><button class="btn btn-primary" onclick="NK.openYearSheet()">+ Erstes Jahr anlegen</button></div>`;
+    return;
+  }
+  const jahre = w.jahre.slice().sort((a,b)=>b.jahr-a.jahr);
+  grid.innerHTML = jahre.map(j=>{
+    const prev = findJahrOf(w, j.jahr-1);
+    const total = calcGesamt(j);
+    let diffHtml = "";
+    if(prev){
+      const prevTotal = calcGesamt(prev);
+      if(prevTotal > 0){
+        const diff = ((total-prevTotal)/prevTotal)*100;
+        const cls = diff >= 0 ? "up" : "down";
+        const arrow = diff >= 0 ? "▲" : "▼";
+        diffHtml = `<span class="yc-diff ${cls}">${arrow} ${Math.abs(diff).toFixed(1)}%</span>`;
+      }
+    }
+    const nz = calcNachzahlung(j);
+    const nzHtml = Math.abs(nz) < 0.005 ? "" : `<div class="yc-nz ${nz>=0?'pay':'credit'}"><span>${nz>=0?'Nachzahlung':'Guthaben'}</span><span>${fmtEuro(Math.abs(nz))}</span></div>`;
+    const stromWarnDays = daysUntil(j.strom.kuendigung);
+    const netWarnDays = daysUntil(j.internet.kuendigung);
+    const stromBadge = (stromWarnDays!==null && stromWarnDays>=0 && stromWarnDays<=60) ? `<span class="yc-badge warn">läuft aus</span>` : "";
+    const netBadge = (netWarnDays!==null && netWarnDays>=0 && netWarnDays<=60) ? `<span class="yc-badge warn">läuft aus</span>` : "";
+    return `
+    <div class="year-card glass">
+      <div class="yc-head"><span class="yc-year">${j.jahr}</span>${diffHtml}</div>
+      <div class="yc-total">${fmtEuro(total)}</div>
+      <div class="yc-rows">
+        <div><span>Strom${stromBadge}</span><b>${fmtEuro(j.strom.kostenJahr)}</b></div>
+        <div><span>Internet${netBadge}</span><b>${fmtEuro(j.internet.kostenJahr)}</b></div>
+        <div><span>Müll</span><b>${fmtEuro(j.muell.kostenJahr)}</b></div>
+        <div><span>Weitere NK</span><b>${fmtEuro(calcNkSumme(j))}</b></div>
+        <div><span>Abschlag (12×)</span><b>${fmtEuro(num(j.abschlagMonat)*12)}</b></div>
+      </div>
+      ${nzHtml}
+      <div class="yc-actions">
+        <button class="btn btn-secondary btn-sm" onclick="NK.openYearSheet('${j.id}')">Bearbeiten</button>
+        <button class="btn btn-secondary btn-sm" onclick="NK.exportYearPDF('${j.id}')">PDF</button>
+        <button class="btn btn-danger btn-sm" onclick="NK.deleteYear('${j.id}')">Löschen</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderSyncDot(){
+  const dot = document.getElementById("sync-dot");
+  dot.className = "sync-dot " + (fbSyncState || "");
+  const statusEl = document.getElementById("sf-status");
+  if(statusEl){
+    statusEl.textContent = { "":"Nicht verbunden", connecting:"Verbinde…", synced:"Synchronisiert", error:"Fehler bei der Verbindung" }[fbSyncState || ""];
+  }
+}
+
+/* ---------------- Year sheet logic ---------------- */
+function openYearSheet(jahrId, prefillYear){
+  const w = activeWohnung();
+  if(!w) return;
+  editingJahrId = jahrId || null;
+  const jahr = jahrId ? w.jahre.find(j=>j.id===jahrId) : newJahr(prefillYear);
+  document.getElementById("yf-title").textContent = jahrId ? "Jahr bearbeiten" : "Jahr anlegen";
+  document.getElementById("jf-jahr").value = jahr.jahr;
+  document.getElementById("jf-abschlag").value = jahr.abschlagMonat || "";
+  document.getElementById("jf-strom-anbieter").value = jahr.strom.anbieter || "";
+  document.getElementById("jf-strom-kwh").value = jahr.strom.kwhJahr || "";
+  document.getElementById("jf-strom-kosten").value = jahr.strom.kostenJahr || "";
+  document.getElementById("jf-strom-kuendigung").value = jahr.strom.kuendigung || "";
+  document.getElementById("jf-internet-anbieter").value = jahr.internet.anbieter || "";
+  document.getElementById("jf-internet-kosten").value = jahr.internet.kostenJahr || "";
+  document.getElementById("jf-internet-kuendigung").value = jahr.internet.kuendigung || "";
+  document.getElementById("jf-muell-anbieter").value = jahr.muell.anbieter || "";
+  document.getElementById("jf-muell-kosten").value = jahr.muell.kostenJahr || "";
+  document.getElementById("jf-notiz").value = jahr.notiz || "";
+  document.getElementById("jf-delete").hidden = !jahrId;
+
+  const nkList = document.getElementById("jf-nk-list");
+  nkList.innerHTML = "";
+  (jahr.nkPositionen || []).forEach(p=>addNkRow(p));
+
+  const belegeList = document.getElementById("jf-belege-list");
+  belegeList.innerHTML = "";
+  (jahr.belege || []).forEach(b=>addBelegRow(b));
+  document.getElementById("jf-belege-input").value = "";
+
+  openSheet("sheet-year");
+}
+
+function addNkRow(data){
+  data = data || { id: uid(), name:"", menge:"", einheit:"", betrag:"", kategorie:"" };
+  const row = document.createElement("div");
+  row.className = "nk-row";
+  row.dataset.id = data.id;
+  row.innerHTML = `
+    <div class="field name-field"><label>Name</label><input type="text" class="nk-name" value="${esc(data.name)}" placeholder="z.B. Heizkosten"></div>
+    <div class="field"><label>Kategorie</label><input type="text" class="nk-kategorie" list="nk-kategorien" value="${esc(data.kategorie)}"></div>
+    <div class="field" style="flex:1 1 70px;"><label>Menge</label><input type="text" class="nk-menge" value="${esc(data.menge)}"></div>
+    <div class="field" style="flex:1 1 70px;"><label>Einheit</label><input type="text" class="nk-einheit" value="${esc(data.einheit)}" placeholder="m²"></div>
+    <div class="field" style="flex:1 1 100px;"><label>Betrag (€)</label><input type="number" step="0.01" class="nk-betrag" value="${esc(data.betrag)}"></div>
+    <button type="button" class="row-del" title="Position entfernen" aria-label="Position entfernen">×</button>`;
+  row.querySelector(".row-del").onclick = ()=>row.remove();
+  document.getElementById("jf-nk-list").appendChild(row);
+}
+
+function addBelegRow(data){
+  const row = document.createElement("div");
+  row.className = "beleg-row";
+  row.dataset.beleg = JSON.stringify(data);
+  const isImg = (data.type || "").startsWith("image/");
+  row.innerHTML = `
+    ${isImg ? `<img class="beleg-thumb" src="${data.dataUrl}" alt="">` : `<span class="beleg-thumb" style="display:flex;align-items:center;justify-content:center;background:rgba(127,127,127,0.15);font-size:11px;">PDF</span>`}
+    <span class="bname">${esc(data.name)}</span>
+    <button type="button" class="row-del" title="Beleg entfernen" aria-label="Beleg entfernen">×</button>`;
+  row.querySelector(".row-del").onclick = ()=>row.remove();
+  document.getElementById("jf-belege-list").appendChild(row);
+}
+
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+async function handleBelegeInput(e){
+  const files = Array.from(e.target.files || []);
+  for(const f of files){
+    if(f.size > 8*1024*1024){
+      await alertModal({title:"Datei zu groß", message:`„${f.name}“ ist größer als 8 MB und wurde übersprungen.`});
+      continue;
+    }
+    const dataUrl = await fileToDataUrl(f);
+    addBelegRow({ id: uid(), name: f.name, type: f.type, dataUrl });
+  }
+  e.target.value = "";
+}
+
+function readYearForm(){
+  const jahrNum = parseInt(document.getElementById("jf-jahr").value, 10);
+  const nkPositionen = Array.from(document.querySelectorAll("#jf-nk-list .nk-row")).map(row=>({
+    id: row.dataset.id,
+    name: row.querySelector(".nk-name").value.trim(),
+    kategorie: row.querySelector(".nk-kategorie").value.trim(),
+    menge: row.querySelector(".nk-menge").value.trim(),
+    einheit: row.querySelector(".nk-einheit").value.trim(),
+    betrag: num(row.querySelector(".nk-betrag").value)
+  })).filter(p=>p.name || p.betrag);
+  const belege = Array.from(document.querySelectorAll("#jf-belege-list .beleg-row")).map(row=>JSON.parse(row.dataset.beleg));
+  return {
+    jahr: isFinite(jahrNum) ? jahrNum : new Date().getFullYear(),
+    abschlagMonat: num(document.getElementById("jf-abschlag").value),
+    strom:{
+      anbieter: document.getElementById("jf-strom-anbieter").value.trim(),
+      kwhJahr: num(document.getElementById("jf-strom-kwh").value),
+      kostenJahr: num(document.getElementById("jf-strom-kosten").value),
+      kuendigung: document.getElementById("jf-strom-kuendigung").value
+    },
+    internet:{
+      anbieter: document.getElementById("jf-internet-anbieter").value.trim(),
+      kostenJahr: num(document.getElementById("jf-internet-kosten").value),
+      kuendigung: document.getElementById("jf-internet-kuendigung").value
+    },
+    muell:{
+      anbieter: document.getElementById("jf-muell-anbieter").value.trim(),
+      kostenJahr: num(document.getElementById("jf-muell-kosten").value)
+    },
+    nkPositionen, belege,
+    notiz: document.getElementById("jf-notiz").value
+  };
+}
+
+async function saveYearForm(){
+  const choice = await confirmModal({ title:"Speichern?", message:"Möchtest du die Änderungen an diesem Jahr speichern?", actions:[
+    {id:"cancel", label:"Abbrechen", style:"secondary"}, {id:"save", label:"Speichern", style:"primary"}
+  ]});
+  if(choice !== "save") return;
+  const w = activeWohnung();
+  const data = readYearForm();
+  if(editingJahrId){
+    const idx = w.jahre.findIndex(j=>j.id===editingJahrId);
+    w.jahre[idx] = Object.assign({ id: editingJahrId }, data);
+  } else {
+    if(findJahrOf(w, data.jahr)){
+      await alertModal({title:"Jahr existiert bereits", message:`Für ${data.jahr} existiert bereits ein Eintrag. Bitte bearbeite den bestehenden Eintrag.`});
+      return;
+    }
+    w.jahre.push(Object.assign({ id: uid() }, data));
+  }
+  saveState();
+  closeSheet("sheet-year");
+}
+
+async function cancelYearForm(){
+  const choice = await confirmModal({ title:"Ohne Speichern schließen?", message:"Nicht gespeicherte Änderungen gehen verloren.", actions:[
+    {id:"back", label:"Zurück", style:"secondary"}, {id:"discard", label:"Verwerfen", style:"danger"}
+  ]});
+  if(choice === "discard") closeSheet("sheet-year");
+}
+
+async function deleteYear(jahrId){
+  const w = activeWohnung();
+  const jahr = w.jahre.find(j=>j.id===jahrId);
+  if(!jahr) return;
+  const choice = await confirmModal({ title:"Jahr löschen?", message:`Das Jahr ${jahr.jahr} und alle zugehörigen Daten werden unwiderruflich gelöscht.`, actions:[
+    {id:"cancel", label:"Abbrechen", style:"secondary"}, {id:"delete", label:"Löschen", style:"danger"}
+  ]});
+  if(choice !== "delete") return;
+  w.jahre = w.jahre.filter(j=>j.id!==jahrId);
+  saveState();
+  if(editingJahrId === jahrId){ editingJahrId = null; closeSheet("sheet-year"); }
+}
+
+/* ---------------- Wohnungen sheet ---------------- */
+function renderWohnungenSheet(){
+  const list = document.getElementById("wohnungen-list");
+  list.innerHTML = state.wohnungen.map(w=>`
+    <div class="wohnung-row" data-id="${w.id}">
+      <input type="text" class="wname" value="${esc(w.name)}">
+      <button class="btn btn-secondary btn-sm wsave">Speichern</button>
+      <button class="btn btn-danger btn-sm wdel">Löschen</button>
+    </div>`).join("");
+  list.querySelectorAll(".wohnung-row").forEach(row=>{
+    const id = row.dataset.id;
+    row.querySelector(".wsave").onclick = async ()=>{
+      const val = row.querySelector(".wname").value.trim();
+      if(!val) return;
+      const choice = await confirmModal({title:"Umbenennen?", message:`Wohnung in „${esc(val)}“ umbenennen?`, actions:[
+        {id:"cancel", label:"Abbrechen", style:"secondary"}, {id:"ok", label:"Umbenennen", style:"primary"}
+      ]});
+      if(choice !== "ok") return;
+      const w = state.wohnungen.find(x=>x.id===id);
+      w.name = val;
+      saveState();
+      renderWohnungenSheet();
+    };
+    row.querySelector(".wdel").onclick = async ()=>{
+      if(state.wohnungen.length <= 1){
+        await alertModal({title:"Nicht möglich", message:"Die letzte verbleibende Wohnung kann nicht gelöscht werden."});
+        return;
+      }
+      const w = state.wohnungen.find(x=>x.id===id);
+      const choice = await confirmModal({title:"Wohnung löschen?", message:`„${esc(w.name)}“ und alle ${w.jahre.length} zugehörigen Jahre werden unwiderruflich gelöscht.`, actions:[
+        {id:"cancel", label:"Abbrechen", style:"secondary"}, {id:"delete", label:"Löschen", style:"danger"}
+      ]});
+      if(choice !== "delete") return;
+      state.wohnungen = state.wohnungen.filter(x=>x.id!==id);
+      if(state.activeWohnungId === id) state.activeWohnungId = state.wohnungen[0].id;
+      saveState();
+      renderWohnungenSheet();
+    };
+  });
+}
+async function addWohnungPrompt(){
+  const name = "Neue Wohnung " + (state.wohnungen.length+1);
+  const w = newWohnung(name);
+  state.wohnungen.push(w);
+  state.activeWohnungId = w.id;
+  saveState();
+  renderWohnungenSheet();
+}
+
+/* ---------------- Settings sheet ---------------- */
+function openSettingsSheet(){
+  document.getElementById("sf-code").value = settings.haushaltsCode || "";
+  document.getElementById("sf-config").value = settings.firebaseConfig ? JSON.stringify(settings.firebaseConfig, null, 2) : "";
+  document.getElementById("sf-theme").value = settings.theme;
+  renderSyncDot();
+  openSheet("sheet-settings");
+}
+function parseLooseJson(text){
+  text = text.trim();
+  if(!text) return null;
+  try{ return JSON.parse(text); }catch(e){}
+  try{
+    const cleaned = text.replace(/^\s*(const|var|let)\s+\w+\s*=\s*/,"").replace(/;\s*$/,"");
+    return new Function("return (" + cleaned + ")")();
+  }catch(e){ return undefined; }
+}
+async function connectFirebase(){
+  const code = document.getElementById("sf-code").value.trim();
+  const cfgText = document.getElementById("sf-config").value.trim();
+  if(!code){ await alertModal({title:"Haushalts-Code fehlt", message:"Bitte einen Haushalts-Code vergeben."}); return; }
+  let cfg = cfgText ? parseLooseJson(cfgText) : (FIREBASE_CONFIG.apiKey ? FIREBASE_CONFIG : null);
+  if(cfg === undefined){ await alertModal({title:"Ungültige Konfiguration", message:"Die eingefügte Firebase-Konfiguration konnte nicht gelesen werden."}); return; }
+  if(!cfg || !cfg.apiKey){ await alertModal({title:"Konfiguration fehlt", message:"Bitte eine gültige Firebase-Konfiguration einfügen."}); return; }
+  settings.haushaltsCode = code;
+  settings.firebaseConfig = cfg;
+  saveSettings();
+  if(typeof firebase === "undefined"){
+    fbSyncState = "error"; renderSyncDot();
+    await alertModal({title:"Firebase nicht verfügbar", message:"Die Firebase-Bibliothek konnte nicht geladen werden (z.B. weil das Gerät gerade offline ist). Die Konfiguration wurde gespeichert und wird automatisch verbunden, sobald wieder eine Internetverbindung besteht."});
+    return;
+  }
+  startFirebaseSync();
+}
+function disconnectFirebase(){
+  if(fbUnsub){ fbUnsub(); fbUnsub = null; }
+  fbApp = null; fbDb = null;
+  fbSyncState = "";
+  settings.firebaseConfig = null;
+  saveSettings();
+  renderSyncDot();
+}
+
+/* ---------------- Firebase sync ---------------- */
+let fbSyncState = "";
+function sanitizeForRemote(wohnungen){
+  return wohnungen.map(w=>({
+    id:w.id, name:w.name,
+    jahre:w.jahre.map(j=>({
+      id:j.id, jahr:j.jahr, strom:j.strom, internet:j.internet, muell:j.muell,
+      abschlagMonat:j.abschlagMonat, nkPositionen:j.nkPositionen, notiz:j.notiz,
+      belege:(j.belege||[]).map(b=>({id:b.id, name:b.name, type:b.type}))
+    }))
+  }));
+}
+function mergeRemoteIntoLocal(remoteWohnungen){
+  remoteWohnungen.forEach(rw=>{
+    let lw = state.wohnungen.find(w=>w.id===rw.id);
+    if(!lw){ lw = { id:rw.id, name:rw.name, jahre:[] }; state.wohnungen.push(lw); }
+    else lw.name = rw.name;
+    rw.jahre.forEach(rj=>{
+      const idx = lw.jahre.findIndex(j=>j.id===rj.id);
+      const localBelege = idx>=0 ? (lw.jahre[idx].belege || []) : [];
+      const merged = Object.assign({}, rj, { belege: localBelege });
+      if(idx>=0) lw.jahre[idx] = merged; else lw.jahre.push(merged);
+    });
+  });
+  if(!state.wohnungen.find(w=>w.id===state.activeWohnungId)) state.activeWohnungId = state.wohnungen[0].id;
+}
+function pushRemote(){
+  if(!fbDb || !settings.haushaltsCode) return;
+  fbDb.collection("households").doc(settings.haushaltsCode).set({
+    wohnungen: sanitizeForRemote(state.wohnungen),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedBy: CLIENT_ID
+  }, { merge:false }).catch(err=>{
+    console.warn("Sync-Push fehlgeschlagen", err);
+    fbSyncState = "error"; renderSyncDot();
+  });
+}
+function startFirebaseSync(){
+  if(fbUnsub){ fbUnsub(); fbUnsub = null; }
+  if(!settings.firebaseConfig || !settings.firebaseConfig.apiKey || !settings.haushaltsCode){
+    fbSyncState = ""; renderSyncDot(); return;
+  }
+  try{
+    fbSyncState = "connecting"; renderSyncDot();
+    if(!fbApp){ fbApp = firebase.initializeApp(settings.firebaseConfig, "nk-" + Date.now()); }
+    fbDb = fbApp.firestore();
+    const docRef = fbDb.collection("households").doc(settings.haushaltsCode);
+    fbUnsub = docRef.onSnapshot(snap=>{
+      fbSyncState = "synced"; renderSyncDot();
+      if(snap.metadata.hasPendingWrites) return; // skip echo of our own write
+      const data = snap.data();
+      if(!data){ pushRemote(); return; }
+      if(data.updatedBy === CLIENT_ID) return;
+      mergeRemoteIntoLocal(data.wohnungen || []);
+      localStorage.setItem(LS_DATA, JSON.stringify(state));
+      render();
+    }, err=>{
+      console.warn("Sync-Fehler", err);
+      fbSyncState = "error"; renderSyncDot();
+    });
+  }catch(err){
+    console.warn("Firebase-Init fehlgeschlagen", err);
+    fbSyncState = "error"; renderSyncDot();
+  }
+}
+
+/* ---------------- Export / Import ---------------- */
+function exportJSON(){
+  const payload = { version:1, exportedAt:new Date().toISOString(), wohnungen: state.wohnungen };
+  downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}), `Nebenkosten_Backup_${todayStr()}.json`);
+}
+function csvEscape(v){ v = String(v==null?"":v); if(/[;"\n]/.test(v)) v = '"' + v.replace(/"/g,'""') + '"'; return v; }
+function exportCSV(){
+  const header = ["Wohnung","Jahr","Strom_Anbieter","Strom_kWh","Strom_Kosten","Strom_Kuendigung","Internet_Anbieter","Internet_Kosten","Internet_Kuendigung","Muell_Anbieter","Muell_Kosten","Abschlag_Monat","NK_Positionen","NK_Summe","Gesamt","Nachzahlung_Guthaben","Notiz"];
+  const rows = [header];
+  state.wohnungen.forEach(w=>{
+    w.jahre.slice().sort((a,b)=>a.jahr-b.jahr).forEach(j=>{
+      const nkStr = (j.nkPositionen||[]).map(p=>`${p.kategorie||""}:${p.name}:${fmtNum(p.betrag)}€${p.menge?` (${p.menge}${p.einheit||""})`:""}`).join(" | ");
+      rows.push([ w.name, j.jahr, j.strom.anbieter, fmtNum(j.strom.kwhJahr), fmtNum(j.strom.kostenJahr), j.strom.kuendigung,
+        j.internet.anbieter, fmtNum(j.internet.kostenJahr), j.internet.kuendigung,
+        j.muell.anbieter, fmtNum(j.muell.kostenJahr), fmtNum(j.abschlagMonat),
+        nkStr, fmtNum(calcNkSumme(j)), fmtNum(calcGesamt(j)), fmtNum(calcNachzahlung(j)), (j.notiz||"").replace(/\n/g," ") ]);
+    });
+  });
+  const csv = rows.map(r=>r.map(csvEscape).join(";")).join("\r\n");
+  downloadBlob(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"}), `Nebenkosten_Export_${todayStr()}.csv`);
+}
+async function handleImportFile(file){
+  let text;
+  try{ text = await file.text(); }catch(e){ await alertModal({title:"Import fehlgeschlagen", message:"Datei konnte nicht gelesen werden."}); return; }
+  let data;
+  try{ data = JSON.parse(text); }catch(e){ await alertModal({title:"Import fehlgeschlagen", message:"Die Datei ist kein gültiges JSON-Backup."}); return; }
+  if(!data || !Array.isArray(data.wohnungen)){ await alertModal({title:"Import fehlgeschlagen", message:"Unbekanntes Dateiformat."}); return; }
+  const choice = await confirmModal({
+    title:"Daten importieren",
+    message:`${data.wohnungen.length} Wohnung(en) gefunden. Vorhandene Daten zusammenführen oder ersetzen?`,
+    actions:[ {id:"merge", label:"Zusammenführen", style:"primary"}, {id:"replace", label:"Ersetzen", style:"danger"}, {id:"cancel", label:"Abbrechen", style:"secondary"} ]
+  });
+  if(choice === "cancel" || !choice) return;
+  if(choice === "replace"){
+    state.wohnungen = data.wohnungen;
+    if(!state.wohnungen.find(w=>w.id===state.activeWohnungId)) state.activeWohnungId = (state.wohnungen[0]||{}).id || null;
+  } else {
+    data.wohnungen.forEach(iw=>{
+      const existing = state.wohnungen.find(w=>w.id===iw.id);
+      if(!existing){ state.wohnungen.push(iw); }
+      else {
+        (iw.jahre||[]).forEach(ij=>{
+          const idx = existing.jahre.findIndex(j=>j.id===ij.id);
+          if(idx>=0) existing.jahre[idx] = ij; else existing.jahre.push(ij);
+        });
+      }
+    });
+  }
+  saveState();
+  await alertModal({title:"Import abgeschlossen", message:"Die Daten wurden erfolgreich importiert."});
+}
+
+/* ---------------- PDF export ---------------- */
+async function exportYearPDF(jahrId){
+  if(!window.jspdf){
+    await alertModal({title:"PDF-Bibliothek nicht verfügbar", message:"jsPDF konnte nicht geladen werden (z.B. weil das Gerät offline ist). Bitte mit Internetverbindung erneut versuchen."});
+    return;
+  }
+  const w = activeWohnung();
+  const jahr = w.jahre.find(j=>j.id===jahrId);
+  if(!jahr) return;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:"pt", format:"a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 44;
+  let y = margin;
+
+  doc.setFontSize(20); doc.setTextColor(20,20,25);
+  doc.text(`Nebenkostenübersicht ${jahr.jahr}`, margin, y);
+  y += 20;
+  doc.setFontSize(11); doc.setTextColor(110);
+  doc.text(w.name, margin, y);
+  y += 34;
+
+  const gesamt = calcGesamt(jahr);
+  doc.setFontSize(30); doc.setTextColor(10,132,255);
+  doc.text(fmtEuro(gesamt), margin, y);
+  doc.setFontSize(10); doc.setTextColor(120);
+  doc.text("Gesamtkosten im Jahr", margin, y + 15);
+  y += 46;
+
+  const breakdown = [
+    { label:"Strom", val:num(jahr.strom.kostenJahr), color:COLORS_RGB.strom },
+    { label:"Internet", val:num(jahr.internet.kostenJahr), color:COLORS_RGB.internet },
+    { label:"Müll", val:num(jahr.muell.kostenJahr), color:COLORS_RGB.muell },
+    { label:"Weitere NK", val:calcNkSumme(jahr), color:COLORS_RGB.nk }
+  ];
+  const maxVal = Math.max(1, ...breakdown.map(b=>b.val));
+  const chartX = margin, chartW = pageW - margin*2, barH = 20, gap = 12;
+  doc.setFontSize(10);
+  breakdown.forEach((b,i)=>{
+    const by = y + i*(barH+gap);
+    doc.setFillColor(230,230,235); doc.roundedRect(chartX, by, chartW, barH, 6, 6, "F");
+    const bw = Math.max(3, (b.val/maxVal)*chartW);
+    doc.setFillColor(b.color[0], b.color[1], b.color[2]); doc.roundedRect(chartX, by, bw, barH, 6, 6, "F");
+    doc.setTextColor(30,30,35);
+    doc.text(b.label, chartX + 8, by + barH - 6);
+    doc.text(fmtEuro(b.val), chartX + chartW - 90, by + barH - 6);
+  });
+  y += breakdown.length * (barH+gap) + 14;
+
+  const prevJahr = findJahrOf(w, jahr.jahr - 1);
+  if(prevJahr){
+    doc.setFontSize(13); doc.setTextColor(20,20,25);
+    doc.text("Vergleich zum Vorjahr", margin, y); y += 16;
+    const gVals = [ { label:String(prevJahr.jahr), val:calcGesamt(prevJahr) }, { label:String(jahr.jahr), val:gesamt } ];
+    const maxG = Math.max(1, ...gVals.map(v=>v.val));
+    doc.setFontSize(10);
+    gVals.forEach((v,i)=>{
+      const by = y + i*(barH+8);
+      doc.setFillColor(230,230,235); doc.roundedRect(chartX, by, chartW, barH, 6, 6, "F");
+      const bw = Math.max(3, (v.val/maxG)*chartW);
+      doc.setFillColor(10,132,255); doc.roundedRect(chartX, by, bw, barH, 6, 6, "F");
+      doc.setTextColor(30,30,35);
+      doc.text(v.label, chartX + 8, by + barH - 6);
+      doc.text(fmtEuro(v.val), chartX + chartW - 90, by + barH - 6);
+    });
+    y += gVals.length * (barH+8) + 18;
+  }
+
+  if(y > pageH - 220){ doc.addPage(); y = margin; }
+  doc.setFontSize(13); doc.setTextColor(20,20,25);
+  doc.text("Detailaufstellung", margin, y); y += 16;
+  doc.setDrawColor(210); doc.line(margin, y, pageW-margin, y); y += 14;
+  const rows = [
+    ["Strom", jahr.strom.anbieter || "-", fmtEuro(jahr.strom.kostenJahr)],
+    ["Internet", jahr.internet.anbieter || "-", fmtEuro(jahr.internet.kostenJahr)],
+    ["Müll", jahr.muell.anbieter || "-", fmtEuro(jahr.muell.kostenJahr)]
+  ].concat((jahr.nkPositionen||[]).map(p=>[
+    p.kategorie || "Sonstiges",
+    p.name + (p.menge ? ` (${p.menge}${p.einheit?" "+p.einheit:""})` : ""),
+    fmtEuro(p.betrag)
+  ]));
+  doc.setFontSize(10);
+  rows.forEach(r=>{
+    if(y > pageH - 80){ doc.addPage(); y = margin; }
+    doc.setTextColor(30,30,35);
+    doc.text(String(r[0]), margin, y);
+    doc.text(String(r[1]), margin + 130, y);
+    doc.text(String(r[2]), pageW - margin - 10, y, { align:"right" });
+    y += 8;
+    doc.setDrawColor(230); doc.line(margin, y, pageW-margin, y);
+    y += 12;
+  });
+
+  y += 8;
+  if(y > pageH - 100){ doc.addPage(); y = margin; }
+  const nz = calcNachzahlung(jahr);
+  doc.setFontSize(14);
+  if(Math.abs(nz) >= 0.005){
+    doc.setTextColor(nz>=0 ? 200 : 20, nz>=0 ? 40 : 140, nz>=0 ? 40 : 40);
+    doc.text((nz>=0?"Nachzahlung: ":"Guthaben: ") + fmtEuro(Math.abs(nz)), margin, y);
+    y += 24;
+  }
+  if(jahr.notiz){
+    doc.setFontSize(11); doc.setTextColor(90,90,95);
+    doc.text("Notiz:", margin, y); y += 14;
+    const lines = doc.splitTextToSize(jahr.notiz, pageW - margin*2);
+    doc.text(lines, margin, y);
+  }
+
+  doc.save(`Nebenkosten_${w.name.replace(/\s+/g,"_")}_${jahr.jahr}.pdf`);
+}
+
+/* ---------------- Global event wiring ---------------- */
+function attachListeners(){
+  document.getElementById("wohnung-select").addEventListener("change", e=>{
+    state.activeWohnungId = e.target.value;
+    saveState(false);
+  });
+  document.getElementById("btn-wohnungen").addEventListener("click", ()=>{ renderWohnungenSheet(); openSheet("sheet-wohnungen"); });
+  document.getElementById("btn-theme").addEventListener("click", cycleTheme);
+  document.getElementById("btn-settings").addEventListener("click", openSettingsSheet);
+  document.getElementById("btn-add-year").addEventListener("click", ()=>openYearSheet(null));
+
+  document.getElementById("jf-nk-add").addEventListener("click", ()=>addNkRow());
+  document.getElementById("jf-belege-input").addEventListener("change", handleBelegeInput);
+  document.getElementById("jf-save").addEventListener("click", saveYearForm);
+  document.getElementById("jf-cancel").addEventListener("click", cancelYearForm);
+  document.getElementById("jf-delete").addEventListener("click", ()=>deleteYear(editingJahrId));
+
+  document.getElementById("wf-add").addEventListener("click", addWohnungPrompt);
+  document.getElementById("wf-close").addEventListener("click", ()=>closeSheet("sheet-wohnungen"));
+
+  document.getElementById("sf-theme").addEventListener("change", e=>{ settings.theme = e.target.value; saveSettings(); applyTheme(); });
+  document.getElementById("sf-connect").addEventListener("click", connectFirebase);
+  document.getElementById("sf-disconnect").addEventListener("click", disconnectFirebase);
+  document.getElementById("sf-export-json").addEventListener("click", exportJSON);
+  document.getElementById("sf-export-csv").addEventListener("click", exportCSV);
+  document.getElementById("sf-import").addEventListener("change", e=>{
+    const f = e.target.files[0]; if(f) handleImportFile(f);
+    e.target.value = "";
+  });
+  document.getElementById("sf-close").addEventListener("click", ()=>closeSheet("sheet-settings"));
+
+  window.addEventListener("resize", ()=>renderChart());
+}
+
+/* ---------------- Init ---------------- */
+function init(){
+  loadSettings();
+  applyTheme();
+  loadState();
+  render();
+  attachListeners();
+  startFirebaseSync();
+}
+document.addEventListener("DOMContentLoaded", init);
+
+/* Expose the handful of functions used via inline onclick= in dynamically
+   rendered markup (year cards, empty state). */
+window.NK = { openYearSheet, deleteYear, exportYearPDF };
+
+})();
+</script>
+</body>
+</html>
